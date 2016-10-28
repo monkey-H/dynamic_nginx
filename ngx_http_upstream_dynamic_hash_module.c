@@ -11,16 +11,21 @@ typedef struct {
 } ngx_http_upstream_dynamic_hash_peer_t;
 
 typedef struct {
+  ngx_array_t  *values;
+  ngx_array_t  *lengths;
+} ngx_http_upstream_dynamic_hash_conf_t;
+
+typedef struct {
     ngx_uint_t                        number;
     ngx_uint_t                        total_weight;
     unsigned                          weighted:1;
-    ngx_http_upstream_dynamic_hash_peer_t     peer[0];
+    ngx_http_upstream_dynamic_hash_peer_t     peer[10];
 } ngx_http_upstream_dynamic_hash_peers_t;
 
 typedef struct {
     ngx_http_upstream_dynamic_hash_peers_t     *peers;
 
-    ngx_uint_t                         hash;
+    int	                               hash;
 
     u_char                             addr[3];
 
@@ -35,6 +40,7 @@ static ngx_int_t ngx_http_upstream_get_dynamic_hash_peer(ngx_peer_connection_t *
                                                          void *data);
 static char *ngx_http_upstream_dynamic_hash(ngx_conf_t *cf, ngx_command_t *cmd,
                                             void *conf);
+static void * ngx_http_upstream_dynamic_hash_create_srv_conf(ngx_conf_t *cf);
 
 static int h1(char* str, int len);
 static int h2(char* str, int len);
@@ -45,7 +51,7 @@ static void print_sockaddr(ngx_log_t *log, struct sockaddr *ip);
 static ngx_command_t  ngx_http_upstream_dynamic_hash_commands[] = {
 
         { ngx_string("dynamic_hash"),
-          NGX_HTTP_UPS_CONF|NGX_CONF_NOARGS,
+          NGX_HTTP_UPS_CONF|NGX_CONF_TAKE1,
           ngx_http_upstream_dynamic_hash,
           0,
           0,
@@ -62,7 +68,7 @@ static ngx_http_module_t  ngx_http_upstream_dynamic_hash_module_ctx = {
         NULL,                                  /* create main configuration */
         NULL,                                  /* init main configuration */
 
-        NULL,                                  /* create server configuration */
+        ngx_http_upstream_dynamic_hash_create_srv_conf,                                  /* create server configuration */
         NULL,                                  /* merge server configuration */
 
         NULL,                                  /* create location configuration */
@@ -172,12 +178,17 @@ ngx_http_upstream_init_dynamic_hash_peer(ngx_http_request_t *r,
     char                                 name[30];
     struct sockaddr_in                     *sin;
     ngx_http_upstream_dynamic_hash_peer_data_t  *iphp;
+    ngx_http_upstream_dynamic_hash_conf_t	 *uhcf;
+
+    ngx_str_t val;
 
     fprintf(stderr, "dynamic func %s\n", "init peer");
 
-    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                   "dynamic point at init peer %s", "hello"
-                   );
+    uhcf = ngx_http_conf_upstream_srv_conf(us, ngx_http_upstream_dynamic_hash_module);
+
+    if (uhcf == NULL) {
+	return NGX_ERROR;
+    }
 
     iphp = ngx_palloc(r->pool, sizeof(ngx_http_upstream_dynamic_hash_peer_data_t));
     if (iphp == NULL) {
@@ -185,15 +196,18 @@ ngx_http_upstream_init_dynamic_hash_peer(ngx_http_request_t *r,
     }
 
     r->upstream->peer.data = iphp;
-
     iphp->peers = us->peer.data;
+
+    if (ngx_http_script_run(r, &val, uhcf->lengths->elts, 0, uhcf->values->elts) == NULL) {
+        return NGX_ERROR;
+    }
 
     r->upstream->peer.get = ngx_http_upstream_get_dynamic_hash_peer;
 
     sin = (struct sockaddr_in *) r->connection->sockaddr;
     strcat(name, inet_ntoa(sin->sin_addr));
 
-    iphp->hash = h1(name, strlen(name)) % 7;
+    iphp->hash = h1((char *)val.data, val.len) % 7;
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "dynamic client name %s", name
@@ -215,84 +229,27 @@ ngx_http_upstream_get_dynamic_hash_peer(ngx_peer_connection_t *pc, void *data)
 {
     ngx_http_upstream_dynamic_hash_peer_data_t  *iphp = data;
 
-    ngx_uint_t                    hash;
+    int                    hash;
     ngx_http_upstream_dynamic_hash_peer_t  *peer;
 
     fprintf(stderr, "dynamic func %s\n", "get peer");
 
-    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, pc->log, 0,
-                   "dynamic get ip hash peer, try: %ui", pc->tries);
-
-//    if (iphp->tries > 20 || iphp->rrp.peers->single) {
-//        return iphp->get_rr_peer(pc, &iphp->rrp);
-//    }
-//
-//    now = ngx_time();
-
     pc->cached = 0;
     pc->connection = NULL;
 
+    fprintf(stderr, "dynamic func2 %s\n", "get peer");
     hash = iphp->hash;
-
-//    for ( ;; ) {
-//
-//        p = hash % iphp->rrp.peers->number;
-//
-//        n = p / (8 * sizeof(uintptr_t));
-//        m = (uintptr_t) 1 << p % (8 * sizeof(uintptr_t));
-//
-//        if (!(iphp->rrp.tried[n] & m)) {
-//
-//            ngx_log_debug2(NGX_LOG_DEBUG_HTTP, pc->log, 0,
-//                           "get ip hash peer, hash: %ui %04XA", p, m);
-//
-//            peer = &iphp->rrp.peers->peer[hash];
-//
-//            /* ngx_lock_mutex(iphp->rrp.peers->mutex); */
-//
-//            if (!peer->down) {
-//
-//                if (peer->max_fails == 0 || peer->fails < peer->max_fails) {
-//                    break;
-//                }
-//
-//                if (now - peer->accessed > peer->fail_timeout) {
-//                    peer->fails = 0;
-//                    break;
-//                }
-//            }
-//
-//            iphp->rrp.tried[n] |= m;
-//
-//            /* ngx_unlock_mutex(iphp->rrp.peers->mutex); */
-//
-//            pc->tries--;
-//        }
-//
-//        if (++iphp->tries >= 20) {
-//            return iphp->get_rr_peer(pc, &iphp->rrp);
-//        }
-//    }
+    fprintf(stderr, "dynamic func3 %d\n", hash);
 
     peer = &iphp->peers->peer[hash];
 
-//    iphp->rrp.current = p;
-
-    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, pc->log, 0,
-                   "dynamic get peer: %d",
-                   hash);
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, pc->log, 0, "dynamic sockaddr: %s", "world");
-
-    print_sockaddr(pc->log, peer->sockaddr);
 
     pc->sockaddr = peer->sockaddr;
     pc->socklen = peer->socklen;
     pc->name = &peer->name;
 
-    /* ngx_unlock_mutex(iphp->rrp.peers->mutex); */
-
-//    iphp->rrp.tried[n] |= m;
-    iphp->hash = hash;
+    print_sockaddr(pc->log, peer->sockaddr);
 
     return NGX_OK;
 }
@@ -308,11 +265,35 @@ static void print_sockaddr(ngx_log_t *log, struct sockaddr *addr) {
 static char *
 ngx_http_upstream_dynamic_hash(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_http_upstream_srv_conf_t  *uscf;
-    fprintf(stderr, "dynamic func %s\n", "hash");
-    
-    uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
+    ngx_http_upstream_srv_conf_t    *uscf;
+    ngx_http_script_compile_t	    sc;
+    ngx_str_t			    *value;
+    ngx_http_upstream_dynamic_hash_conf_t	*uhcf;
 
+    value = cf->args->elts;
+
+    uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
+    uhcf = ngx_http_conf_upstream_srv_conf(uscf, ngx_http_upstream_dynamic_hash_module);
+
+    fprintf(stderr, "dynamic func1 %s\n", "hash");
+
+    ngx_memzero(&sc, sizeof(ngx_http_script_compile_t));
+
+    sc.cf = cf;
+    sc.source = &value[1];
+    sc.lengths = &uhcf->lengths;
+    sc.values = &uhcf->values;
+    sc.complete_lengths = 1;
+    sc.complete_values = 1;
+
+    fprintf(stderr, "dynamic func2 %s\n", "hash");
+    if (ngx_http_script_compile(&sc) != NGX_OK) {
+    	fprintf(stderr, "dynamic func2.5 %s\n", "hash");
+	return NGX_CONF_ERROR;
+    }
+
+    fprintf(stderr, "dynamic func2 %s\n", "hash");
+    
     uscf->peer.init_upstream = ngx_http_upstream_init_dynamic_hash;
 
     uscf->flags = NGX_HTTP_UPSTREAM_CREATE
@@ -320,9 +301,23 @@ ngx_http_upstream_dynamic_hash(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
                   |NGX_HTTP_UPSTREAM_FAIL_TIMEOUT
                   |NGX_HTTP_UPSTREAM_DOWN
 		  |NGX_HTTP_UPSTREAM_WEIGHT;
-    fprintf(stderr, "dynamic func %s\n", "hash");
+
+    fprintf(stderr, "dynamic func3 %s\n", "hash");
 
     return NGX_CONF_OK;
+}
+
+static void * ngx_http_upstream_dynamic_hash_create_srv_conf(ngx_conf_t *cf)
+{
+    ngx_http_upstream_dynamic_hash_conf_t *conf;
+  
+    conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_upstream_dynamic_hash_conf_t));
+
+    if (conf == NULL) {
+	return NULL;
+    }
+
+    return conf;
 }
 
 static int h1(char* str, int len) {
