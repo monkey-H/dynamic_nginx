@@ -156,7 +156,7 @@ ngx_http_upstream_init_dynamic_hash(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t
     init_peers(server_num, col, weight, server_name, entry);
 
     peers = ngx_pcalloc(cf->pool, sizeof(ngx_http_upstream_dynamic_hash_peers_t)
-                                  + sizeof(ngx_http_upstream_dynamic_hash_peer_t) * server_num);
+                                  + sizeof(ngx_http_upstream_dynamic_hash_peer_t) * col);
 
     for (i=0; i<col; i++) {
 	//ngx_log_stderr(0, "dynamic: %d: name: \"%s\"", i, inet_ntoa(((struct sockaddr_in *)server[entry[i]].addrs[0].sockaddr)->sin_addr));
