@@ -18,7 +18,7 @@ typedef struct {
     ngx_uint_t                        number;
     ngx_uint_t                        total_weight;
     unsigned                          weighted:1;
-    ngx_http_upstream_dynamic_hash_peer_t     peer[91];
+    ngx_http_upstream_dynamic_hash_peer_t     peer[53];
 } ngx_http_upstream_dynamic_hash_peers_t;
 
 typedef struct {
@@ -104,7 +104,7 @@ ngx_http_upstream_init_dynamic_hash(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t
     int                             count;
     int                             server_num;
     int*                            entry;
-    ngx_uint_t                      col=91;
+    ngx_uint_t                      col=53;
     ngx_uint_t                      i;
     ngx_http_upstream_dynamic_hash_peers_t *peers;
     struct timeval start, end;
@@ -171,7 +171,6 @@ ngx_http_upstream_init_dynamic_hash(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t
     us->peer.data = peers;
 
     gettimeofday(&end, NULL);
-    fprintf(stderr, "dynamic init end %ld \n", 1000000*end.tv_sec+end.tv_usec);
     fprintf(stderr, "dynamic init last %ld \n", 1000000*(end.tv_sec-start.tv_sec)+end.tv_usec-start.tv_usec);
 
     return NGX_OK;
@@ -191,7 +190,6 @@ ngx_http_upstream_init_dynamic_hash_peer(ngx_http_request_t *r,
 
     gettimeofday(&start, NULL);
 
-    fprintf(stderr, "dynamic init hash peer %ld\n", 1000000*start.tv_sec + start.tv_usec);
 
     uhcf = ngx_http_conf_upstream_srv_conf(us, ngx_http_upstream_dynamic_hash_module);
 
@@ -216,7 +214,7 @@ ngx_http_upstream_init_dynamic_hash_peer(ngx_http_request_t *r,
     sin = (struct sockaddr_in *) r->connection->sockaddr;
     strcat(name, inet_ntoa(sin->sin_addr));
 
-    iphp->hash = h1((char *)val.data, val.len) % 91;
+    iphp->hash = h1((char *)val.data, val.len) % 53;
 
     //ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
     //               "dynamic client name %s", name
@@ -400,7 +398,6 @@ static void init_peers(int row, int col, int* weight, char** name, int* entry) {
     for (i=0; i<col; i++) {
         entry[i] = -1;
     }
-
 
     getPermutation(permutation, row, col, name);
 
